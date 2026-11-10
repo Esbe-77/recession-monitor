@@ -1,0 +1,28 @@
+{
+ "name": "Global Recession Monitor",
+ "short_name": "Recession",
+ "description": "Recession risk across 20 major economies, with alerts and trade links.",
+ "start_url": "./",
+ "scope": "./",
+ "display": "standalone",
+ "background_color": "#16161a",
+ "theme_color": "#16161a",
+ "icons": [
+  {
+   "src": "icons/icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png"
+  },
+  {
+   "src": "icons/icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png"
+  },
+  {
+   "src": "icons/icon-maskable-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "maskable"
+  }
+ ]
+}

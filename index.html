@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Recession Monitor</title>
+<meta name="description" content="Recession risk across 20 major economies, with alerts and trade links.">
+<meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#f7f6f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16161a" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Recession">
+<style>
+:root {
+  --font-anthropic-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-anthropic-serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --color-bg: #f7f6f2; --color-panel: #ffffff; --color-fg: #1d1d1f; --color-fg-muted: #66656a;
+  --color-border-line: #e2e0d9; --color-ok: #2f9e6b; --color-warn: #d08a1c; --color-bad: #d0453a;
+  --cds-chart-muted: #b9b7b0; --cds-text-secondary: #66656a; --cds-border: #e2e0d9;
+  --cds-surface-popover: #ffffff; --cds-shadow-popover: 0 6px 24px rgba(0,0,0,.14);
+  --cds-gap-xs: 4px; --cds-gap-sm: 8px; --cds-gap-md: 12px; --cds-gap-xl: 32px;
+  --cds-pad-xs: 4px; --cds-pad-sm: 8px; --cds-pad-md: 12px; --cds-pad-lg: 16px;
+  --cds-radius: 12px; --cds-font-weight-medium: 600; --cds-dur-slow: .3s;
+  --cds-font-size-caption: 13px; --cds-font-size-body: 15px; --cds-font-size-heading: 17px;
+  --cds-font-size-title: clamp(26px, 5vw, 34px);
+  --gr-c0: #3b6fd8; --gr-c1: #c2410c;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #16161a; --color-panel: #202025; --color-fg: #ecebe6; --color-fg-muted: #9d9ba3;
+    --color-border-line: #33333a; --color-ok: #3fbf86; --color-warn: #e3a23a; --color-bad: #ef6b5f;
+    --cds-chart-muted: #55555d; --cds-text-secondary: #9d9ba3; --cds-border: #33333a;
+    --cds-surface-popover: #2a2a30; --cds-shadow-popover: 0 6px 24px rgba(0,0,0,.5);
+    --gr-c0: #6f9bf0; --gr-c1: #f08a4b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --color-bg: #16161a; --color-panel: #202025; --color-fg: #ecebe6; --color-fg-muted: #9d9ba3;
+  --color-border-line: #33333a; --color-ok: #3fbf86; --color-warn: #e3a23a; --color-bad: #ef6b5f;
+  --cds-chart-muted: #55555d; --cds-text-secondary: #9d9ba3; --cds-border: #33333a;
+  --cds-surface-popover: #2a2a30; --cds-shadow-popover: 0 6px 24px rgba(0,0,0,.5);
+  --gr-c0: #6f9bf0; --gr-c1: #f08a4b; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--color-bg); color: var(--color-fg); font-family: var(--font-anthropic-sans); }
+#dash-root { padding: max(16px, env(safe-area-inset-top)) max(var(--dash-gutter), env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(var(--dash-gutter), env(safe-area-inset-left)); overflow-x: hidden; }
+.pwa-bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; max-width: 1400px; margin: 0 auto 16px; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+.pwa-bar button { font: inherit; color: var(--color-fg); background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+.pwa-bar .off { color: var(--color-warn); }
+</style>
+<script src="vendor/d3.min.js"></script>
+<script>
+(function () {
+  var store = {}, calcs = {}, draws = {}, order = [];
+  var SOURCES = ["countries", "links", "alerts", "markets", "indicators"];
+  var tok = function (n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); };
+  var dash = {
+    colors: [],
+    data: function (id) { return store[id] || { status: 'loading', data: [] }; },
+    calc: function (id, spec) { calcs[id] = spec; },
+    draw: function (key, fn) {
+      if (fn) { draws[key] = fn; if (order.indexOf(key) < 0) order.push(key); return; }
+      run(key);
+    }
+  };
+  function run(key) {
+    var fn = draws[key]; if (!fn) return;
+    document.querySelectorAll('[data-draw="' + key + '"]').forEach(function (el) {
+      try { fn(el); } catch (e) { console.error('draw ' + key, e); }
+    });
+  }
+  function computeCalcs() {
+    Object.keys(calcs).forEach(function (id) {
+      var c = calcs[id];
+      try {
+        var ins = c.inputs.map(function (s) { return dash.data(s); });
+        store[id] = ins.every(function (d) { return d.status === 'ok'; })
+          ? { status: 'ok', data: c.fn.apply(null, ins.map(function (d) { return d.data; })) }
+          : { status: 'loading', data: [] };
+      } catch (e) { console.error('calc ' + id, e); store[id] = { status: 'error', data: [] }; }
+    });
+  }
+  function redrawAll() {
+    dash.colors = [tok('--gr-c0'), tok('--gr-c1')];
+    order.forEach(run);
+  }
+  dash.reload = function () {
+    var bust = 't=' + Date.now();
+    return Promise.all(SOURCES.map(function (s) {
+      return fetch('data/' + s + '.json?' + bust, { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (d) { store[s] = { status: 'ok', data: d }; })
+        .catch(function (e) { console.error('load ' + s, e); if (!store[s]) store[s] = { status: 'error', data: [] }; });
+    })).then(function () {
+      return fetch('meta.json?' + bust, { cache: 'no-store' }).then(function (r) { return r.json(); }).catch(function () { return null; });
+    }).then(function (meta) {
+      computeCalcs(); redrawAll();
+      var el = document.getElementById('pwa-updated');
+      if (el && meta && meta.built) {
+        el.textContent = 'Data refreshed ' + new Date(meta.built).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      }
+    });
+  };
+  window.dash = dash;
+  document.addEventListener('DOMContentLoaded', function () {
+    dash.reload();
+    var w = window.innerWidth, t;
+    window.addEventListener('resize', function () {
+      if (window.innerWidth === w) return; w = window.innerWidth;
+      clearTimeout(t); t = setTimeout(function () { dash.draw('net'); }, 150);
+    });
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redrawAll);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) dash.reload(); });
+    var btn = document.getElementById('pwa-refresh');
+    if (btn) btn.addEventListener('click', function () { btn.disabled = true; dash.reload().finally(function () { btn.disabled = false; }); });
+    var off = document.getElementById('pwa-offline');
+    var upd = function () { off.hidden = navigator.onLine; };
+    window.addEventListener('online', upd); window.addEventListener('offline', upd); upd();
+  });
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(console.error); });
+  }
+})();
+</script>
+</head>
+<body>
+<div id="dash-root">
+<div class="pwa-bar"><span><span id="pwa-updated">Loading data…</span> <span id="pwa-offline" class="off" hidden>· Offline, showing saved copy</span></span><button id="pwa-refresh" type="button">Refresh</button></div>
+<style>
+#dash-root { --dash-gutter: clamp(16px, 3vw, 40px); }
+.gr { display: flex; flex-direction: column; gap: var(--cds-gap-xl); font-family: var(--font-anthropic-sans); color: var(--color-fg); max-width: 1400px; margin-inline: auto; }
+.gr-head { display: flex; flex-direction: column; gap: var(--cds-gap-sm); }
+.gr-head h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; text-wrap: balance; }
+.gr-take { font-size: var(--cds-font-size-body); color: var(--color-fg-muted); margin: 0; max-width: 75ch; line-height: 1.5; }
+.gr-take b { color: var(--color-fg); font-weight: 600; }
+.gr-asof { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin: 0; }
+.gr-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--cds-gap-md); }
+.gr-tile { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-md) var(--cds-pad-lg); display: flex; flex-direction: column; gap: var(--cds-gap-xs); min-width: 0; }
+.gr-tile .lab { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+.gr-tile .big { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.gr-tile .sub { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+.gr-sec { display: flex; flex-direction: column; gap: var(--cds-gap-md); }
+.gr-sec > h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; }
+.gr-sec > p.note { margin: 0; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); max-width: 80ch; line-height: 1.5; }
+.gr-card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); display: flex; flex-direction: column; gap: var(--cds-gap-sm); min-width: 0; }
+.gr-card h3 { margin: 0; font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); }
+.gr-card p.note { margin: 0; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); line-height: 1.45; }
+.gr-alerts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: var(--cds-gap-md); align-items: start; }
+.gr-tier { display: flex; align-items: center; gap: var(--cds-gap-sm); }
+.gr-pill { font-size: var(--cds-font-size-caption); padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; font-weight: 600; letter-spacing: .02em; }
+.gr-pill.urgent { color: var(--color-bad); }
+.gr-pill.important { color: var(--color-warn); }
+.gr-pill.noise { color: var(--color-fg-muted); }
+.gr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--cds-gap-md); }
+.gr-list li { display: flex; flex-direction: column; gap: 4px; padding-top: var(--cds-pad-sm); border-top: 1px solid var(--color-border-line); }
+.gr-list li:first-child { border-top: 0; padding-top: 0; }
+.gr-list .t { font-weight: 600; font-size: var(--cds-font-size-body); line-height: 1.35; }
+.gr-list .m { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+.gr-list .d { font-size: var(--cds-font-size-caption); line-height: 1.5; }
+.gr-list .i { font-size: var(--cds-font-size-caption); line-height: 1.5; color: var(--color-fg-muted); }
+.gr-list .i b { color: var(--color-fg); font-weight: 600; }
+.gr-list a { color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+.gr-tablebox { overflow: auto; max-height: 640px; }
+.gr-table { width: 100%; border-collapse: collapse; font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; }
+.gr-table th { text-align: left; font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); padding: 6px 8px; border-bottom: 1px solid var(--color-border-line); position: sticky; top: 0; background: var(--color-panel); white-space: nowrap; z-index: 1; }
+.gr-table td { padding: 7px 8px; border-bottom: 1px solid var(--color-border-line); vertical-align: top; }
+.gr-table td.num, .gr-table th.num { text-align: right; }
+.gr-table tbody tr { cursor: pointer; }
+.gr-table tbody tr:hover { background: var(--cds-surface-popover); }
+.gr-table tbody tr.sel { outline: 2px solid var(--color-fg); outline-offset: -2px; }
+.gr-table td.wrap { min-width: 16rem; line-height: 1.45; }
+.gr-score { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+.gr-score i { display: block; height: 8px; border-radius: 2px; }
+.gr-band { font-weight: 600; }
+.gr-sort { all: unset; cursor: pointer; }
+.gr-sort:focus-visible { outline: 2px solid var(--color-fg); }
+.gr-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); gap: var(--cds-gap-md); align-items: start; }
+.gr-net { position: relative; min-height: 360px; }
+.gr-net svg text { font-family: var(--font-anthropic-sans); }
+.gr-tip { position: absolute; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); border-radius: var(--cds-radius); box-shadow: var(--cds-shadow-popover); padding: var(--cds-pad-xs) var(--cds-pad-sm); font-size: var(--cds-font-size-caption); max-width: 16rem; line-height: 1.4; z-index: 3; }
+.gr-tip .k { color: var(--cds-text-secondary); }
+.gr-legend { display: flex; flex-wrap: wrap; gap: var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); align-items: center; }
+.gr-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.gr-legend i { display: inline-block; width: 18px; height: 3px; border-radius: 2px; }
+.gr-legend i.out { background: var(--gr-out); }
+.gr-legend i.in { background: var(--gr-in); }
+.gr-legend i.ramp { width: 60px; height: 8px; background: linear-gradient(90deg, var(--color-ok), var(--color-warn), var(--color-bad)); }
+.gr-selname { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); }
+.gr-why { margin: 0; font-size: var(--cds-font-size-body); line-height: 1.5; }
+.gr-method { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); line-height: 1.6; max-width: 85ch; display: flex; flex-direction: column; gap: var(--cds-gap-sm); }
+.gr-method p { margin: 0; }
+.gr-method b { color: var(--color-fg); }
+[data-dash-source-state=empty] { color: transparent; }
+[data-dash-source-state=refreshing] { opacity: .5; transition: opacity var(--cds-dur-slow); }
+</style>
+
+<div class="gr" id="gr">
+  <header class="gr-head">
+    <h1>Global Recession Monitor</h1>
+    <p class="gr-take"><b data-draw="topname" data-source="countries">—</b> carries the highest recession risk of the 20 economies tracked. The common thread is the Gulf oil shock: Brent near <b data-draw="brent" data-source="markets" data-field="value" data-where="id=brent0">—</b>, with central banks hiking into slowing economies. <b data-draw="urgentn" data-source="alertcount" data-field="n" data-where="tier=Urgent">—</b> alerts are urgent this week.</p>
+    <p class="gr-asof">Snapshot as of 9 Nov 2026. Scores are a transparent heuristic built from the latest public data, not a calibrated probability, and nothing here is financial advice.</p>
+  </header>
+
+  <div class="gr-tiles">
+    <div class="gr-tile"><span class="lab">Average risk score, 20 economies</span><span class="big" data-draw="avg" data-source="summary" data-field="avg" data-row="0">—</span><span class="sub">0 = expansion, 100 = recession signals everywhere</span></div>
+    <div class="gr-tile"><span class="lab">Economies at High risk or worse</span><span class="big" data-draw="highn" data-source="summary" data-field="high" data-row="0">—</span><span class="sub">Score 40 or above</span></div>
+    <div class="gr-tile"><span class="lab">Brent crude, $/bbl</span><span class="big" data-draw="brent2" data-source="markets" data-field="value" data-where="id=brent0">—</span><span class="sub">Year on year <span data-draw="brentyoy" data-source="markets" data-field="yoy_pct" data-where="id=brent0">—</span></span></div>
+    <div class="gr-tile"><span class="lab">US 10-year minus 3-month</span><span class="big" data-draw="curve" data-source="curve" data-field="spread" data-row="0">—</span><span class="sub">Positive and steepening after inversion</span></div>
+  </div>
+
+  <section class="gr-sec" id="alerts">
+    <h2>What changed: urgent, important, noise</h2>
+    <p class="note">Urgent means it can move recession odds or markets within weeks. Important means it shifts the trend. Noise is a headline that looks big but says little.</p>
+    <div class="gr-alerts">
+      <div class="gr-card"><div class="gr-tier"><span class="gr-pill urgent">Urgent</span></div><ul class="gr-list" data-draw="al-urgent" data-source="alerts"></ul></div>
+      <div class="gr-card"><div class="gr-tier"><span class="gr-pill important">Important</span></div><ul class="gr-list" data-draw="al-important" data-source="alerts"></ul></div>
+      <div class="gr-card"><div class="gr-tier"><span class="gr-pill noise">Noise</span></div><ul class="gr-list" data-draw="al-noise" data-source="alerts"></ul></div>
+    </div>
+  </section>
+
+  <section class="gr-sec" id="risk">
+    <h2>Recession risk by economy</h2>
+    <p class="note">Pick a row to see why it scores as it does and who it depends on. Pillar columns are 0 to 100. Spillover is the risk an economy imports through its export markets: each market's score weighted by the share of exports sold there.</p>
+    <div class="gr-card">
+      <div class="gr-tablebox">
+        <table class="gr-table" data-source="countries" data-row-key="code">
+          <thead><tr>
+            <th data-field="code"><button class="gr-sort" data-sort="code">Code</button></th>
+            <th data-field="country"><button class="gr-sort" data-sort="country">Economy</button></th>
+            <th class="num" data-field="score"><button class="gr-sort" data-sort="score">Risk</button></th>
+            <th data-field="band">Level</th>
+            <th class="num" data-field="act"><button class="gr-sort" data-sort="act">Activity</button></th>
+            <th class="num" data-field="jobs"><button class="gr-sort" data-sort="jobs">Jobs &amp; consumer</button></th>
+            <th class="num" data-field="infl"><button class="gr-sort" data-sort="infl">Inflation &amp; rates</button></th>
+            <th class="num" data-field="frag"><button class="gr-sort" data-sort="frag">Fragility</button></th>
+            <th class="num" data-field="oil"><button class="gr-sort" data-sort="oil">Oil exposure</button></th>
+            <th class="num" data-source="spill" data-field="spill"><button class="gr-sort" data-sort="spill">Spillover</button></th>
+            <th data-field="drivers">Main drivers</th>
+          </tr></thead>
+          <tbody data-draw="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="gr-sec" id="detail">
+    <h2>Why, and what to watch</h2>
+    <div class="gr-grid2">
+      <div class="gr-card">
+        <span class="gr-selname" data-draw="selname" data-source="countries">—</span>
+        <p class="gr-why"><span data-draw="selscore" data-source="countries">—</span></p>
+        <h3>Pushing risk up</h3>
+        <p class="note" data-draw="seldrivers" data-source="countries">—</p>
+        <h3>Holding it down</h3>
+        <p class="note" data-draw="seloffsets" data-source="countries">—</p>
+        <h3>Market pressure points</h3>
+        <p class="note" data-draw="selwatch" data-source="countries">—</p>
+      </div>
+      <div class="gr-card">
+        <h3>Latest readings</h3>
+        <p class="note">As published, with the prior reading and the period it covers.</p>
+        <div class="gr-tablebox" style="max-height:420px">
+          <table class="gr-table" data-source="indicators" data-row-key="code,indicator">
+            <thead><tr><th data-field="indicator">Indicator</th><th class="num" data-field="value">Latest</th><th class="num" data-field="previous">Prior</th><th data-field="unit">Unit</th><th data-field="period">Period</th></tr></thead>
+            <tbody data-draw="indrows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="gr-sec" id="links">
+    <h2>Who relies on whom</h2>
+    <p class="note">Lines run from an exporter to the market it sells into; thicker means a larger share of the exporter's goods exports. Circles are coloured by risk score. Hover a line or circle for detail; pick a circle to focus on it.</p>
+    <div class="gr-grid2">
+      <div class="gr-card">
+        <div class="gr-legend"><span><i class="ramp"></i>Low to high risk</span><span><i class="out"></i>Sells to</span><span><i class="in"></i>Buys from</span></div>
+        <div class="gr-net" data-draw="net" data-source="countries links"></div>
+      </div>
+      <div class="gr-card">
+        <h3>Where <span data-draw="selname2" data-source="countries">—</span> sells</h3>
+        <p class="note">Its biggest markets and how risky they are. A sick market here is a direct hit to its exports.</p>
+        <table class="gr-table" data-source="links" data-row-key="id">
+          <thead><tr><th data-field="market">Market</th><th class="num" data-field="share">Share of exports</th><th class="num" data-source="linkrisk" data-field="mrisk">Market risk</th></tr></thead>
+          <tbody data-draw="outrows"></tbody>
+        </table>
+        <h3>Who depends on <span data-draw="selname3" data-source="countries">—</span></h3>
+        <p class="note">Economies that sell a large share of their exports here. If this economy slows, these feel it.</p>
+        <table class="gr-table" data-source="links" data-row-key="id">
+          <thead><tr><th data-field="exporter">Exporter</th><th class="num" data-field="share">Share of its exports</th><th class="num" data-source="linkrisk" data-field="xrisk">Exporter risk</th></tr></thead>
+          <tbody data-draw="inrows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="gr-sec" id="markets">
+    <h2>Market gauges</h2>
+    <div class="gr-card">
+      <div class="gr-tablebox">
+        <table class="gr-table" data-source="markets" data-row-key="id">
+          <thead><tr><th data-field="name">Gauge</th><th class="num" data-field="value">Latest</th><th data-field="unit">Unit</th><th class="num" data-field="chg_1m_pct">1 month</th><th class="num" data-field="yoy_pct">1 year</th><th data-field="date">As of</th></tr></thead>
+          <tbody data-draw="mktrows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="gr-sec" id="method">
+    <h2>How the score works</h2>
+    <div class="gr-method">
+      <p><b>Five pillars, weighted.</b> Activity (GDP quarter on quarter and year on year, PMIs and their one-month change, industrial output) carries the most weight. Jobs and consumer covers the change in unemployment, consumer confidence and retail sales against inflation. Inflation and rates covers the inflation level and its acceleration, plus whether the central bank is hiking or about to. Fragility covers government debt and the current account. Oil exposure is an estimate of how hard the Gulf supply shock hits each economy, from its reliance on imported oil and on Hormuz routes.</p>
+      <p><b>Each reading maps to 0 to 1</b> on a fixed scale (for example, a PMI of 52 scores 0 and 46 scores 1), and the score is the weighted average times 100. Levels: under 25 Low, 25 to 39 Elevated, 40 to 54 High, 55 and up Severe.</p>
+      <p><b>Limits.</b> Readings come from Trading Economics country pages, central-bank statements and market briefings read on 9 Nov 2026; some periods lag (Q2 GDP for several economies). The oil exposure and export shares are approximate structural estimates from pre-2026 trade patterns, not live figures. The score ranks relative stress; it is not a probability, and it is not investment advice.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+window.GR = window.GR || { sel: null, sort: 'score', dir: -1 };
+const css = (n) => getComputedStyle(document.getElementById('gr') || document.documentElement).getPropertyValue(n).trim();
+window.GR.ramp = (s) => {
+  const ok = css('--color-ok') || '#2a7', warn = css('--color-warn') || '#c80', bad = css('--color-bad') || '#c33';
+  const t = Math.max(0, Math.min(1, (s - 10) / 45));
+  return t < 0.5 ? d3.interpolateRgb(ok, warn)(t * 2) : d3.interpolateRgb(warn, bad)((t - 0.5) * 2);
+};
+window.GR.setSel = (code) => {
+  window.GR.sel = code;
+  ['rows','selname','selname2','selname3','selscore','seldrivers','seloffsets','selwatch','indrows','net','outrows','inrows'].forEach((n) => dash.draw(n));
+};
+window.GR.LABELS = { gdp_qoq: 'GDP, q/q', gdp_yoy: 'GDP, y/y', unemployment: 'Unemployment', cpi: 'Inflation (CPI)', policy_rate: 'Policy rate', mfg_pmi: 'Factory PMI', nbs_pmi: 'Official factory PMI', services_pmi: 'Services PMI', composite_pmi: 'Composite PMI', business_conf: 'Business confidence', consumer_conf: 'Consumer confidence', ind_prod_yoy: 'Industrial output, y/y', retail_sales_yoy: 'Retail sales, y/y', bond_10y: '10-year yield', gov_debt_gdp: 'Government debt / GDP', current_account_gdp: 'Current account / GDP', exports: 'Exports', balance_of_trade: 'Trade balance' };
+
+dash.calc('summary', {
+  title: 'Risk summary', description: 'Average score across the 20 economies and the count scoring 40 or more.',
+  inputs: ['countries'],
+  fn: (countries) => [{ avg: Math.round(d3.mean(countries, (c) => c.score)), high: countries.filter((c) => c.score >= 40).length }]
+});
+dash.calc('spill', {
+  title: 'Imported risk via exports', description: 'For each economy, the sum of each export market\'s score times the share of exports sold there.',
+  inputs: ['countries', 'links'],
+  fn: (countries, links) => {
+    const s = new Map(countries.map((c) => [c.code, c.score]));
+    return countries.map((c) => ({ code: c.code, spill: Math.round(d3.sum(links.filter((l) => l.exporter === c.code), (l) => l.share / 100 * (s.get(l.market) ?? 0))) }));
+  }
+});
+dash.calc('linkrisk', {
+  title: 'Risk at each end of a trade link', description: 'The market\'s and the exporter\'s risk score for each trade link.',
+  inputs: ['countries', 'links'],
+  fn: (countries, links) => {
+    const s = new Map(countries.map((c) => [c.code, c.score]));
+    return links.map((l) => ({ id: l.id, mrisk: s.get(l.market) ?? null, xrisk: s.get(l.exporter) ?? null }));
+  }
+});
+dash.calc('alertcount', {
+  title: 'Alerts by tier', description: 'Number of alerts in each tier.',
+  inputs: ['alerts'],
+  fn: (alerts) => ['Urgent', 'Important', 'Noise'].map((t) => ({ tier: t, n: alerts.filter((a) => a.tier === t).length }))
+});
+dash.calc('curve', {
+  title: 'US yield curve, 10y minus 3m', description: 'US 10-year yield minus the 3-month bill yield, in percentage points.',
+  inputs: ['markets'],
+  fn: (markets) => {
+    const v = (id) => markets.find((m) => m.id === id)?.value;
+    return [{ spread: +(v('us1') - v('us2')).toFixed(2) }];
+  }
+});
+</script>
+
+<script>
+const ok = (id) => dash.data(id).status === 'ok';
+const rows = (id) => ok(id) ? dash.data(id).data : [];
+const fmt1 = d3.format('.1f');
+const pct = (x) => x == null ? '' : (x > 0 ? '+' : '') + fmt1(x) + '%';
+const selRow = () => { const c = rows('countries'); return c.find((r) => r.code === window.GR.sel) || c[0]; };
+const name = (code) => (rows('countries').find((r) => r.code === code) || {}).country || code;
+const simple = (key, get) => dash.draw(key, (el) => { const v = get(); el.textContent = v == null ? '—' : v; });
+
+simple('topname', () => ok('countries') ? rows('countries').slice().sort((a, b) => b.score - a.score)[0].country : null);
+simple('brent', () => { const m = rows('markets').find((r) => r.id === 'brent0'); return m ? '$' + fmt1(m.value) : null; });
+simple('brent2', () => { const m = rows('markets').find((r) => r.id === 'brent0'); return m ? fmt1(m.value) : null; });
+simple('brentyoy', () => { const m = rows('markets').find((r) => r.id === 'brent0'); return m ? pct(m.yoy_pct) : null; });
+simple('urgentn', () => { const r = rows('alertcount').find((x) => x.tier === 'Urgent'); return r ? String(r.n) : null; });
+simple('avg', () => ok('summary') ? String(rows('summary')[0].avg) : null);
+simple('highn', () => ok('summary') ? String(rows('summary')[0].high) : null);
+simple('curve', () => ok('curve') ? (rows('curve')[0].spread > 0 ? '+' : '') + rows('curve')[0].spread.toFixed(2) + ' pts' : null);
+
+const alertList = (tier) => (el) => {
+  el.replaceChildren();
+  rows('alerts').filter((a) => a.tier === tier).forEach((a) => {
+    const li = document.createElement('li');
+    const t = document.createElement('span'); t.className = 't'; t.textContent = a.title; li.append(t);
+    const m = document.createElement('span'); m.className = 'm';
+    m.textContent = d3.utcFormat('%-d %b')(new Date(a.date)) + (a.countries ? ' · ' + a.countries.split(' ').join(', ') : ''); li.append(m);
+    const d = document.createElement('span'); d.className = 'd'; d.textContent = a.detail; li.append(d);
+    if (a.implication) { const i = document.createElement('span'); i.className = 'i'; const b = document.createElement('b'); b.textContent = 'Market angle: '; i.append(b, document.createTextNode(a.implication)); li.append(i); }
+    if (/^https:\/\//.test(a.source || '')) { const s = document.createElement('a'); s.href = a.source; s.target = '_blank'; s.rel = 'noopener'; s.textContent = 'Source'; li.append(s); }
+    el.append(li);
+  });
+};
+dash.draw('al-urgent', alertList('Urgent'));
+dash.draw('al-important', alertList('Important'));
+dash.draw('al-noise', alertList('Noise'));
+
+dash.draw('rows', (tb) => {
+  tb.replaceChildren();
+  if (!ok('countries')) return;
+  const sp = new Map(rows('spill').map((r) => [r.code, r.spill]));
+  const G = window.GR;
+  const data = rows('countries').map((r) => ({ ...r, spill: sp.get(r.code) }));
+  data.sort((a, b) => { const x = a[G.sort], y = b[G.sort]; return (typeof x === 'string' ? x.localeCompare(y) : (x ?? -1) - (y ?? -1)) * G.dir; });
+  if (!G.sel) G.sel = data.slice().sort((a, b) => b.score - a.score)[0].code;
+  data.forEach((r) => {
+    const tr = document.createElement('tr'); if (r.code === G.sel) tr.className = 'sel';
+    tr.tabIndex = 0;
+    const td = (txt, cls) => { const c = document.createElement('td'); if (cls) c.className = cls; c.textContent = txt; tr.append(c); return c; };
+    td(r.code); td(r.country);
+    const sc = document.createElement('td'); sc.className = 'num';
+    const w = document.createElement('div'); w.className = 'gr-score';
+    const bar = document.createElement('i'); bar.style.width = Math.max(2, r.score * 0.6) + 'px'; bar.style.background = G.ramp(r.score);
+    const n = document.createElement('span'); n.textContent = String(r.score);
+    w.append(bar, n); sc.append(w); tr.append(sc);
+    const b = td(r.band, 'gr-band'); b.style.color = G.ramp(r.score);
+    ['act', 'jobs', 'infl', 'frag', 'oil'].forEach((k) => { const c = td(r[k] == null ? '' : String(r[k]), 'num'); c.style.color = r[k] >= 60 ? 'var(--color-bad)' : ''; });
+    td(r.spill == null ? '' : String(r.spill), 'num');
+    td(r.drivers, 'wrap');
+    tr.addEventListener('click', () => G.setSel(r.code));
+    tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); G.setSel(r.code); } });
+    tb.append(tr);
+  });
+  document.querySelectorAll('#risk .gr-sort').forEach((btn) => {
+    const th = btn.closest('th');
+    if (th) th.setAttribute('aria-sort', btn.dataset.sort === G.sort ? (G.dir < 0 ? 'descending' : 'ascending') : 'none');
+  });
+});
+document.querySelectorAll('#risk .gr-sort').forEach((btn) => btn.addEventListener('click', () => {
+  const G = window.GR, k = btn.dataset.sort;
+  if (G.sort === k) G.dir = -G.dir; else { G.sort = k; G.dir = (k === 'code' || k === 'country') ? 1 : -1; }
+  dash.draw('rows');
+}));
+
+['selname', 'selname2', 'selname3'].forEach((k) => simple(k, () => ok('countries') ? selRow().country : null));
+simple('selscore', () => { if (!ok('countries')) return null; const r = selRow(); return `Risk score ${r.score} of 100: ${r.band}.`; });
+simple('seldrivers', () => ok('countries') ? (selRow().drivers || 'No reading is flashing red.') : null);
+simple('seloffsets', () => ok('countries') ? (selRow().offsets || 'Few offsets in the latest data.') : null);
+simple('selwatch', () => ok('countries') ? selRow().watch : null);
+
+dash.draw('indrows', (tb) => {
+  tb.replaceChildren();
+  if (!ok('indicators') || !ok('countries')) return;
+  const code = selRow().code, L = window.GR.LABELS;
+  rows('indicators').filter((r) => r.code === code).forEach((r) => {
+    const tr = document.createElement('tr'); tr.dataset.key = `${r.code},${r.indicator}`; tr.style.cursor = 'default';
+    const td = (t, cls) => { const c = document.createElement('td'); if (cls) c.className = cls; c.textContent = t ?? ''; tr.append(c); };
+    td(L[r.indicator] || r.indicator); td(r.value == null ? '' : String(r.value), 'num'); td(r.previous == null ? '' : String(r.previous), 'num'); td(r.unit); td(r.period);
+    tb.append(tr);
+  });
+});
+
+const linkTable = (dir) => (tb) => {
+  tb.replaceChildren();
+  if (!ok('links') || !ok('countries')) return;
+  const code = selRow().code;
+  const lr = new Map(rows('linkrisk').map((r) => [r.id, r]));
+  const ls = rows('links').filter((l) => (dir === 'out' ? l.exporter : l.market) === code).sort((a, b) => b.share - a.share);
+  if (!ls.length) { const tr = document.createElement('tr'); const c = document.createElement('td'); c.colSpan = 3; c.textContent = dir === 'out' ? 'No export links recorded.' : 'No large dependants recorded.'; c.style.color = 'var(--color-fg-muted)'; tr.append(c); tb.append(tr); return; }
+  ls.forEach((l) => {
+    const tr = document.createElement('tr'); tr.dataset.key = l.id;
+    const other = dir === 'out' ? l.market : l.exporter;
+    const risk = lr.get(l.id)?.[dir === 'out' ? 'mrisk' : 'xrisk'];
+    const a = document.createElement('td'); a.textContent = name(other); tr.append(a);
+    const b = document.createElement('td'); b.className = 'num'; b.textContent = l.share + '%'; tr.append(b);
+    const c = document.createElement('td'); c.className = 'num'; c.textContent = risk == null ? '' : String(risk); c.style.color = risk == null ? '' : window.GR.ramp(risk); tr.append(c);
+    tr.addEventListener('click', () => window.GR.setSel(other));
+    tb.append(tr);
+  });
+};
+dash.draw('outrows', linkTable('out'));
+dash.draw('inrows', linkTable('in'));
+
+dash.draw('mktrows', (tb) => {
+  tb.replaceChildren();
+  rows('markets').forEach((m) => {
+    const tr = document.createElement('tr'); tr.dataset.key = m.id; tr.style.cursor = 'default';
+    const td = (t, cls) => { const c = document.createElement('td'); if (cls) c.className = cls; c.textContent = t ?? ''; tr.append(c); };
+    td(m.name); td(m.value >= 1000 ? d3.format(',.0f')(m.value) : d3.format(',.2f')(m.value), 'num'); td(m.unit); td(pct(m.chg_1m_pct), 'num'); td(pct(m.yoy_pct), 'num'); td(d3.utcFormat('%-d %b %Y')(new Date(m.date)));
+    tb.append(tr);
+  });
+});
+
+const ORDER = ['US', 'CA', 'MX', 'BR', 'AR', 'GB', 'EA', 'DE', 'FR', 'IT', 'TR', 'RU', 'SA', 'ZA', 'IN', 'CN', 'KR', 'JP', 'ID', 'AU'];
+dash.draw('net', (el) => {
+  el.replaceChildren();
+  if (!ok('countries') || !ok('links')) return;
+  const G = window.GR, sel = selRow().code;
+  const outC = dash.colors[0], inC = dash.colors[1];
+  document.getElementById('gr').style.setProperty('--gr-out', outC);
+  document.getElementById('gr').style.setProperty('--gr-in', inC);
+  const W = Math.max(300, el.clientWidth), H = Math.min(560, Math.max(340, W * 0.9));
+  const cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 34;
+  const cs = new Map(rows('countries').map((c) => [c.code, c]));
+  const nodes = ORDER.filter((c) => cs.has(c)).map((c, i, a) => { const t = -Math.PI / 2 + i / a.length * 2 * Math.PI; return { code: c, x: cx + R * Math.cos(t), y: cy + R * Math.sin(t), t, d: cs.get(c) }; });
+  const pos = new Map(nodes.map((n) => [n.code, n]));
+  const svg = d3.select(el).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('role', 'img').attr('aria-label', 'Trade dependency network');
+  const tip = d3.select(el).append('div').attr('class', 'gr-tip').style('opacity', 0);
+  const showTip = (ev, html) => {
+    tip.selectAll('*').remove(); html(tip);
+    const b = el.getBoundingClientRect(); let x = ev.clientX - b.left + 12, y = ev.clientY - b.top + 12;
+    const tw = tip.node().offsetWidth, th = tip.node().offsetHeight;
+    if (x + tw > b.width) x = ev.clientX - b.left - tw - 12; if (y + th > b.height) y = ev.clientY - b.top - th - 12;
+    tip.style('left', Math.max(0, x) + 'px').style('top', Math.max(0, y) + 'px').style('opacity', 1);
+  };
+  const hide = () => tip.style('opacity', 0);
+  const ls = rows('links').filter((l) => pos.has(l.exporter) && pos.has(l.market));
+  const wS = d3.scaleSqrt([0, 80], [0.6, 9]);
+  const path = (l) => { const a = pos.get(l.exporter), b = pos.get(l.market); const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2; const qx = mx + (cx - mx) * 0.55, qy = my + (cy - my) * 0.55; return `M${a.x},${a.y} Q${qx},${qy} ${b.x},${b.y}`; };
+  const role = (l) => l.exporter === sel ? 'out' : l.market === sel ? 'in' : 'none';
+  svg.append('g').selectAll('path').data(ls.slice().sort((a, b) => (role(a) !== 'none') - (role(b) !== 'none'))).join('path')
+    .attr('d', path).attr('fill', 'none').attr('stroke-linecap', 'round')
+    .attr('stroke', (l) => role(l) === 'out' ? outC : role(l) === 'in' ? inC : 'var(--cds-chart-muted)')
+    .attr('stroke-opacity', (l) => role(l) === 'none' ? 0.28 : 0.9)
+    .attr('stroke-width', (l) => wS(l.share))
+    .style('cursor', 'pointer')
+    .on('mousemove', (ev, l) => showTip(ev, (t) => { t.append('div').attr('class', 'k').text(`${name(l.exporter)} → ${name(l.market)}`); t.append('div').text(`${l.share}% of ${name(l.exporter)}'s exports`); t.append('div').text(`${name(l.market)} risk: ${cs.get(l.market).score}`); }))
+    .on('mouseleave', hide);
+  const g = svg.append('g').selectAll('g').data(nodes).join('g').attr('transform', (n) => `translate(${n.x},${n.y})`).style('cursor', 'pointer')
+    .attr('tabindex', 0).attr('role', 'button').attr('aria-label', (n) => `${n.d.country}, risk ${n.d.score}`)
+    .on('click', (ev, n) => G.setSel(n.code))
+    .on('keydown', (ev, n) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); G.setSel(n.code); } })
+    .on('mousemove', (ev, n) => showTip(ev, (t) => { t.append('div').attr('class', 'k').text(n.d.country); t.append('div').text(`Risk ${n.d.score} · ${n.d.band}`); if (n.d.drivers) t.append('div').text(n.d.drivers.split(' · ')[0]); }))
+    .on('mouseleave', hide);
+  g.append('circle').attr('r', (n) => 9 + n.d.score / 9).attr('fill', (n) => G.ramp(n.d.score))
+    .attr('stroke', (n) => n.code === sel ? 'var(--color-fg)' : 'var(--color-panel)').attr('stroke-width', (n) => n.code === sel ? 3 : 2);
+  g.append('text').text((n) => n.code).attr('text-anchor', (n) => Math.abs(Math.cos(n.t)) < 0.3 ? 'middle' : Math.cos(n.t) > 0 ? 'start' : 'end')
+    .attr('x', (n) => Math.cos(n.t) * (16 + n.d.score / 9)).attr('y', (n) => Math.sin(n.t) * (16 + n.d.score / 9) + 4)
+    .attr('fill', 'var(--color-fg)').attr('font-size', 12).attr('font-weight', (n) => n.code === sel ? 700 : 500);
+});
+</script>
+
+</div>
+</body>
+</html>
