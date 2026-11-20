@@ -1,5 +1,5 @@
-// Recession Monitor service worker. Version: 0fc09c30ca
-const CACHE = 'grm-0fc09c30ca';
+// Recession Monitor service worker. Version: c81dd774a7
+const CACHE = 'grm-c81dd774a7';
 const SHELL = ['./', 'index.html', 'vendor/d3.min.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'meta.json', 'data/countries.json', 'data/links.json', 'data/alerts.json', 'data/markets.json', 'data/indicators.json'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
